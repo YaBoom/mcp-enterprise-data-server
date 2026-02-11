@@ -1,0 +1,51 @@
+{
+  "name": "mcp-enterprise-data-server",
+  "version": "1.0.0",
+  "description": "企业级MCP数据查询服务 - 基于Model Context Protocol的智能数据访问层",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-data-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "watch": "tsc --watch",
+    "test": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "docker:build": "docker build -t mcp-data-server .",
+    "docker:run": "docker run -i --rm mcp-data-server"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "database",
+    "enterprise",
+    "claude",
+    "openai"
+  ],
+  "author": "YaBoom",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "0.5.0",
+    "mysql2": "^3.9.0",
+    "redis": "^4.6.0",
+    "axios": "^1.6.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "tsx": "^4.7.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
