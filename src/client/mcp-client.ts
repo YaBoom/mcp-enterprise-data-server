@@ -12,7 +12,7 @@ interface MCPClientConfig {
 }
 
 export class UnifiedMCPClient {
-  private mcpClient: Client;
+  private mcpClient!: Client;
   private modelClient: any;
   private config: MCPClientConfig;
 
@@ -90,11 +90,12 @@ export class UnifiedMCPClient {
         name: toolCall.function.name,
         arguments: args,
       });
+      const content = result.content as Array<{ type: string; text?: string }>;
 
       messages.push({
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: result.content[0].text,
+        content: content[0]?.text ?? '',
       });
     }
 

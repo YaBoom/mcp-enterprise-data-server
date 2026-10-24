@@ -4,11 +4,11 @@
 
 ## 🚀 特性
 
-- **多模型支持**: Claude、GPT-4o、DeepSeek 统一接入
-- **企业级权限**: RBAC 角色权限控制
-- **数据安全**: SQL 注入防护、敏感字段自动脱敏
-- **高性能**: 连接池复用、结果缓存、流式传输
-- **监控完善**: Prometheus + Grafana 监控面板
+- **多模型支持**: Claude、GPT-4o、DeepSeek 统一接入，OpenAI / Anthropic 两套 tool schema 双向转换
+- **工具级 RBAC**: 角色 → 工具白名单（employee 无法调用 `mysql_query`）+ 角色 → 表白名单
+- **数据安全**: 单条 SELECT 校验 + 参数化查询（`?` 占位符绑定）+ 敏感字段脱敏
+- **只读硬化**: 拦截 `INTO OUTFILE / DUMPFILE`、`FOR UPDATE`、`LOCK IN SHARE MODE` 与多语句堆叠
+- **连接池复用**: mysql2 连接池（connectionLimit 10），Redis 单连接复用
 
 ## 📦 快速开始
 
@@ -73,22 +73,36 @@ npm start
 
 ### 1. mysql_query
 
-执行 MySQL 只读查询（仅支持 SELECT）。
+执行 MySQL 只读查询（仅支持单条 SELECT）。
+
+最简写法（无参数时可直接查）：
 
 ```json
 {
-  "sql": "SELECT * FROM employees WHERE department = '技术部' LIMIT 10",
+  "sql": "SELECT name, department FROM employees LIMIT 10",
   "userRole": "manager"
 }
 ```
 
+推荐写法（参数化，条件值走 `params` 绑定）：
+
+```json
+{
+  "sql": "SELECT name, department FROM employees WHERE department = ? LIMIT ?",
+  "params": ["技术部", 10],
+  "userRole": "manager"
+}
+```
+
+`sql` 中 `?` 的数量必须与 `params` 长度一致，否则直接拒绝——这是防止条件值被拼进 SQL 文本的那道闸。
+
 **权限控制**:
-- `admin`: 可访问所有表
+- `admin`: 可访问所有表（白名单为 `*` 通配）
 - `manager`: 可访问 employees、departments、projects、sales
-- `employee`: 无 MySQL 访问权限
+- `employee`: 无 MySQL 访问权限，工具白名单就不含 `mysql_query`
 
 **敏感字段自动脱敏**:
-- password、id_card、phone、salary 等字段会自动显示为 `***`
+- password、id_card、phone、salary 等字段在返回前替换为 `***`（`admin` 除外）
 
 ### 2. redis_get
 
@@ -160,7 +174,7 @@ mcp-enterprise-data-server/
 │   │   └── mcp-client.ts
 │   └── types/            # 类型定义
 │       └── index.ts
-├── monitoring/           # 监控配置
+├── monitoring/           # 监控配置（预留骨架，未接入埋点）
 │   └── prometheus.yml
 ├── Dockerfile
 ├── docker-compose.yml
@@ -170,21 +184,51 @@ mcp-enterprise-data-server/
 
 ## 🔐 安全说明
 
-1. **SQL 注入防护**: 使用参数化查询，禁止非 SELECT 语句
-2. **表级权限控制**: 基于角色的表访问控制
-3. **字段脱敏**: 敏感字段自动脱敏处理
-4. **工具白名单**: API 端点白名单机制
+1. **参数化查询**: 条件值通过 `?` 占位符 + `params` 数组交给 mysql2 预编译绑定，不做字符串拼接；占位符与参数数量不一致直接拒绝
+2. **只读语句硬化**: 仅允许单条 SELECT；拦截 `INTO OUTFILE / DUMPFILE`、`FOR UPDATE`、`LOCK IN SHARE MODE` 与多语句堆叠
+3. **表级权限控制**: 从 SQL 解析表名后按角色白名单校验；解析前先剥离字符串字面量与注释，避免 `WHERE note = 'from sales'` 被误判成访问了 sales 表
+4. **字段脱敏**: password / id_card / phone / salary 在返回前替换为 `***`（admin 除外）
+5. **工具白名单**: employee 在 server 层与工具层双重被拒，无法调用 `mysql_query`
 
-## 📊 监控指标
+<b>已知边界</b>：表名校验是正则实现，不是完整 SQL Parser。`UNION`、子查询、`db.table` 形式能覆盖，但复杂 CTE / 动态拼接不保证；生产环境应换成 AST 解析并叠加数据库只读账号。
+
+## 📊 监控（预留，未接入）
+
+`monitoring/prometheus.yml` 与 `docker-compose.yml` 里的 Prometheus / Grafana 是**预留骨架**，不是已完成的监控：
+
+- 服务走 stdio 传输，没有 HTTP 端口，也未暴露 `/metrics`
+- `prometheus.yml` 里 `mcp-server:3000` 这个 target 目前抓不到任何数据，容器起来后指标为空
+- `src/` 中没有 `prom-client` 埋点
+
+后续接入时按以下指标设计（**当前是设计稿，非已实现**）：
 
 | 指标名 | 说明 |
 |--------|------|
-| `mcp_tool_calls_total` | 工具调用总数 |
-| `mcp_tool_call_duration_seconds` | 工具调用耗时 |
-| `mcp_permission_denied_total` | 权限拒绝次数 |
+| `mcp_tool_calls_total` | 工具调用总数（按 tool / role 打标签） |
+| `mcp_tool_call_duration_seconds` | 工具调用耗时直方图 |
+| `mcp_permission_denied_total` | 权限拒绝次数（按 tool / role） |
 
-访问 `http://localhost:9090` 查看 Prometheus 面板
-访问 `http://localhost:3000` 查看 Grafana 面板（默认账号 admin/admin）
+接入步骤：新增 HTTP `/metrics` 端口 → 改 `monitoring/prometheus.yml` 的 target 指向该端口 → 在 Grafana 里建面板。
+
+> 如果只是跑通功能，可以把 `docker-compose.yml` 里的 `prometheus` / `grafana` 两个服务注释掉，能省两个容器。
+
+## 🧪 测试
+
+```bash
+npm test            # 单次运行
+npm run test:watch  # 监听模式
+```
+
+18 条用例，用 `vi.mock` 把 mysql2 换成假驱动，**不需要真实数据库**：
+
+| 分组 | 覆盖内容 |
+|------|----------|
+| 工具级白名单 | employee 被拒且不产生任何 SQL 调用 |
+| 表级白名单 | manager 越权被拒、白名单内放行、admin 通配 `*`、`db.table` 形式 |
+| 只读硬化 | 非 SELECT、`INTO OUTFILE / DUMPFILE`、`FOR UPDATE`、`LOCK IN SHARE MODE`、多语句堆叠 |
+| 表名解析 | 字符串字面量与注释里的 `from` 不被误判为表名 |
+| 参数化绑定 | 占位符/参数数量不一致被拒；参数原样传到驱动且不出现在 SQL 文本里 |
+| 结果处理 | 敏感字段脱敏、admin 不脱敏、`executionTimeMs` 是耗时而非时间戳 |
 
 ## 📝 环境变量
 

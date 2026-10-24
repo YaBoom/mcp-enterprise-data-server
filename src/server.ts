@@ -49,13 +49,20 @@ export class DataMcpServer {
       const tools: Tool[] = [
         {
           name: 'mysql_query',
-          description: '执行MySQL只读查询（SELECT语句），支持权限检查',
+          description:
+            '执行 MySQL 只读查询：仅单条 SELECT，条件值走 ? 占位符绑定，按角色做表级权限与敏感字段脱敏',
           inputSchema: {
             type: 'object',
             properties: {
               sql: {
                 type: 'string',
-                description: 'SQL查询语句，必须是只读的SELECT语句',
+                description:
+                  '单条 SELECT 查询语句。条件值必须写成 ? 占位符，不要拼接字面量；占位符数量需与 params 长度一致',
+              },
+              params: {
+                type: 'array',
+                description:
+                  '与 sql 中 ? 占位符一一对应的参数值（字符串/数字/布尔/null），由驱动预编译绑定，不参与 SQL 文本拼接',
               },
               userRole: {
                 type: 'string',
@@ -111,7 +118,8 @@ export class DataMcpServer {
 
     // 处理"调用工具"请求
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const { name } = request.params;
+      const args = (request.params.arguments ?? {}) as Record<string, any>;
       
       // 权限检查
       const hasPermission = await this.rbac.checkPermission(

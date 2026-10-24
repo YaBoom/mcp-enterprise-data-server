@@ -17,22 +17,22 @@ export class RBAC {
     return this.tablePermissions[role] || [];
   }
 
-  async checkPermission(role: string, toolName: string, args: any): Promise<boolean> {
+  /**
+   * 判断角色是否有权访问某张表。
+   * 注意：admin 的白名单是 ['*']，必须先判通配再比较表名，
+   * 否则 ['*'].includes('employees') 恒为 false，管理员会被全部拒绝。
+   */
+  hasTableAccess(role: string, table: string): boolean {
+    const allowed = this.getAllowedTables(role);
+    if (allowed.length === 0) return false;
+    if (allowed.includes('*')) return true;
+    return allowed.some((t) => t.toLowerCase() === table.toLowerCase());
+  }
+
+  async checkPermission(role: string, toolName: string, _args?: any): Promise<boolean> {
     const allowedTools = this.toolPermissions[role];
     if (!allowedTools) return false;
-    
-    if (allowedTools.includes('*')) return true;
-    if (!allowedTools.includes(toolName)) return false;
 
-    // 额外的细粒度控制
-    if (toolName === 'mysql_query' && args.sql) {
-      // 经理只能查自己部门的员工
-      if (role === 'manager' && args.sql.includes('employees')) {
-        // 实际逻辑：检查SQL是否包含department_id限制
-        return true;
-      }
-    }
-
-    return true;
+    return allowedTools.includes(toolName);
   }
 }
